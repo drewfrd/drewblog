@@ -1,0 +1,98 @@
+#!/bin/bash
+name="Drew Bradford"
+webdir="$PWD"
+website="https://drewfrd.com/" # Keep a trailing slash.
+css="../style.css"
+blogfile="$(date +%Y).html"
+indexfile="blogindex.html"
+rssfile="rss.xml"
+
+# If EDITOR var is not set, use vim
+[ -z "$EDITOR" ] && EDITOR="nvim"
+
+# If drafts folder doesn't exist
+# Create .draft folder
+# Create .htaccess file with browse directory permission
+[ ! -d "$webdir/blog/.drafts" ] &&
+read -erp "Initialize blog in $webdir? y/n: " ask &&
+	if [ "$ask" = "y" ]; then
+	printf "Initializing blog system...\\n"
+	mkdir -pv "$webdir/blog/.drafts" || printf "Error. Do you have write permissions in this directory?\\n"
+	mkdir -pv "$webdir/blog/.published" || printf "Error. Do you have write permissions in this directory?\\n"
+	echo "Options +Indexes" > "$webdir/blog/.htaccess"
+else
+	exit
+fi
+
+newpost() { \
+	read -erp "Choose file extention .md or .html (M or h, default is M): " format
+	format="${format:=M}"
+	extention="$([ "$format" = "M" ] && echo "md"; [ "$format" = "h" ] && echo "html")"
+	read -erp "Give a title for your post.$extention: " title
+	echo "$title" | grep "\"" >/dev/null && printf "Double quotation marks (\") are not allowed in entry titles.\\n" && exit
+	# Generate URL from title
+	url="$(echo "$title" | iconv -cf UTF-8 -t ASCII//TRANSLIT | tr -d '[:punct:]' | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | sed "s/-\+/-/g;s/\(^-\|-\$\)//g")"
+	# Add file description to .htaccess
+	echo "AddDescription \"$title\" \"$url.$extention\"" >> "$webdir/blog/.htaccess" || { echo "Error: Is htaccess writeable?"; exit; }
+	# Check to see if file already exists
+	[ -f "$webdir/blog/.drafts/$url.$extention" ] && echo "There is already an existing draft entry of that same name/URL." && exit
+	[ -f "$webdir/blog/$url.$extention" ] && echo "There is already an existing published entry of that same name/URL." && exit
+	# Create and open new file in text editor
+	$EDITOR "$webdir/blog/.drafts/$url.$extention" ;}
+
+publish() { \
+	delete # Cleanup if previously embedded
+	mv $webdir/blog/.drafts/$basefile $webdir/blog/.published/$basefile # Move from .drafts to .published
+	htaccessentry=$(grep "$basefile" "$webdir/blog/.htaccess") # Get .htacess entry
+	realname="$(echo "$htaccessentry" | cut -d'"' -f2)" # Get title from .htaccess entry
+	rssdate="$(grep "$basefile" blog/.htaccess | sed "s/.*\.$extention\"* *#*//g" | tr -d '\n')" # Check if date already exists in .htaccess after the pound sign
+	[ -z "$rssdate" ] && rssdate="$(LC_TIME=en_US date '+%a, %d %b %Y %H:%M:%S %z')" # RSS date formats must comply with standards to validate.
+	webdate="$(date '+%a, %d %b %Y %H:%M:%S %z')" # But this visible date you can set to any format.
+	# Create standalone blog post html file from the published file
+	tmpdir=$(mktemp -d)
+	[ "$extention" = "md" ] &&
+		printf "<html>\\n<head>\\n<title>%s</title>\\n<link rel='stylesheet' type='text/css' href='%s'>\\n<meta charset='utf-8'/>\\n</head>\\n<body>\\n<h1>%s</h1>\\n<small>[<a href='%s#%s'>link</a>&mdash;<span>standalone</span>]</small>\\n%s\\n<footer>by <strong><a href='%s'>%s</a></strong></footer>\\n</body>\\n\\n</html>" "$realname" "$css" "$realname" "../$blogfile" "$base" "$(cat "$webdir/blog/.published/$base.md" | pulldown-cmark)" "$website" "$name" > "$webdir/blog/$base.html" &&
+		printf "\\n<item>\\n<title>%s</title>\\n<guid>%s%s#%s</guid>\\n<pubDate>%s</pubDate>\\n<description><![CDATA[\\n%s\\n]]></description>\\n</item>\\n\\n" "$realname" "$website" "$blogfile" "$base" "$rssdate" "$(cat "$webdir/blog/.published/$base.md" | pulldown-cmark )" >  "$tmpdir/rss" &&
+		printf "<div class='entry'>\\n<h2 id='%s'>%s</h2>\\n<small>[<a href='#%s'>link</a>&mdash;<a href='%s'>standalone</a>]</small>\\n%s\\n<small>%s</small>\\n</div>\\n" "$base" "$realname" "$base" "blog/$base.html" "$(cat "$webdir/blog/.published/$base.md" | pulldown-cmark )" "$webdate" > "$tmpdir/html" &&
+		printf "<li>%s &ndash; <a href=\"blog/%s\">%s</a></li>\\n" "$(date '+%Y %b %d')" "$base.html" "$realname" > "$tmpdir/index"
+	[ "$extention" = "html" ] &&
+		printf "<html>\\n<head>\\n<title>%s</title>\\n<link rel='stylesheet' type='text/css' href='%s'>\\n<meta charset='utf-8'/>\\n</head>\\n<body>\\n<h1>%s</h1>\\n<small>[<a href='%s#%s'>link</a>&mdash;<span>standalone</span>]</small>\\n%s\\n<footer>by <strong><a href='%s'>%s</a></strong></footer>\\n</body>\\n\\n</html>" "$realname" "$css" "$realname" "../$blogfile" "$base" "$(cat "$webdir/blog/.published/$base.html")" "$website" "$name" > "$webdir/blog/$base.html" &&
+		printf "\\n<item>\\n<title>%s</title>\\n<guid>%s%s#%s</guid>\\n<pubDate>%s</pubDate>\\n<description><![CDATA[\\n%s\\n]]></description>\\n</item>\\n\\n" "$realname" "$website" "$blogfile" "$base" "$rssdate" "$(cat "$webdir/blog/.published/$base.html")" >  "$tmpdir/rss" &&
+		printf "<div class='entry'>\\n<h2 id='%s'>%s</h2>\\n<small>[<a href='#%s'>link</a>&mdash;<a href='%s'>standalone</a>]</small>\\n%s\\n<small>%s</small>\\n</div>\\n" "$base" "$realname" "$base" "blog/$base.html" "$(cat "$webdir/blog/.drafts/$base.html")" "$webdate" > "$tmpdir/html" &&
+		printf "<li>%s &ndash; <a href=\"blog/%s\">%s</a></li>\\n" "$(date '+%Y %b %d')" "$base.html" "$realname" > "$tmpdir/index"
+	sed -i "/<!-- DB -->/r $tmpdir/html" "$blogfile"
+	sed -i "/<!-- DB -->/r $tmpdir/rss" "$rssfile"
+	sed -i "/<!-- DB -->/r $tmpdir/index" "$indexfile"
+	sed -i "/ \"$base.$extention\"/d" "$webdir/blog/.htaccess" # Delete .htaccess entry
+	echo "AddDescription \"$realname\" \"$basefile\" #$rssdate" >> "$webdir/blog/.htaccess" # Add back .htaccess entry with rssdate
+	printf "Published $basefile\\n" 
+}
+
+revise() { mv "$webdir/blog/.published/$basefile" "$webdir/blog/.drafts/$basefile"
+	"$EDITOR" "$webdir/blog/.drafts/$basefile"
+	printf "Revision stored in blog/.drafts. Publish as normal entry when desired.\\n" ;}
+
+# List files and return selected filename with and without filetype extention
+listandReturn() { printf "Listing contents of %s.\\n" "$1" # $1 is a folder
+	ls -rc "$1" | awk -F '/' '{print $NF}' | nl # Numbered list of files in given folder
+	read -erp "Pick an entry by number to $2, or press ctrl-c to cancel. " number # Select a number
+	chosen="$(ls -rc "$1" | nl | grep -w "$number" | awk '{print $2}')" # Get content of selection
+	basefile="$(basename "$chosen")" && base="${basefile%.*}" && extention="${basefile##*.}";} # Make sure its a file with and without extention
+confirm() { read -erp "Really $1 \"$base\"? (y/N) " choice && echo "$choice" | grep -i "^y$" >/dev/null || exit 1 ;}
+delete() { \
+	sed -i "/<item/{:a;N;/<\\/item>/!ba};/#$base<\\/guid/d" "$webdir/$rssfile"
+	sed -i "/<div class='entry'>/{:a;N;/<\\/div>/!ba};/id='$base'/d" "$webdir/$blogfile"
+	sed -i "/<li>.*<a href=\"blog\\/$base.html\">/d" "$webdir/$indexfile"
+	rm "$webdir/blog/$base.html" 2>/dev/null && 
+	rm "$webdir/blog/.published/$basefile" 2>/dev/null &&
+	printf "old blog entry removed.\\n" ;}
+
+case "$1" in
+	n*) newpost ;;
+	e*) listandReturn "$webdir"/blog/.drafts/ && "$EDITOR" "$webdir/blog/.drafts/$chosen" ;;
+	p*) listandReturn "$webdir"/blog/.drafts/ && publish ;;
+	t*) listandReturn "$webdir"/blog/.drafts/ && confirm trash && rm -f "$webdir/blog/.drafts/$chosen" && sed -i "/ \"$base.$extention\"/d" "$webdir/blog/.htaccess" ; printf "Draft deleted.\\n" ;;
+	d*) listandReturn "$webdir"/blog/.published/ && confirm delete && delete && sed -i "/ \"$base.$extention\"/d" "$webdir/blog/.htaccess" ;;
+	r*) listandReturn "$webdir"/blog/.published/ && revise ;;
+	*) printf "db blog system adapted for Markdown by Drew Bradford from Luke Smith's lb blog system\\nUsage:\\n  db n:\\tnew draft\\n  db e:\\tedit draft\\n  db p:\\tpublish/finalize draft\\n  db r:\\trevise published entry\\n  db t:\\tdiscard draft\\n  db d:\\tdelete published entry\\n\\nBe sure to have the following pattern added to your RSS feed, blog file and blog index:\\n\\n<!-- DB -->\\n\\nNew content will be added directly below that sequence. This is required.\\nSee https://github.com/LukeSmithxyz/lb for more.\\n" ;;
+esac
