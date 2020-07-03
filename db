@@ -41,7 +41,11 @@ newpost() { \
 	$EDITOR "$webdir/blog/.drafts/$url.$extention" ;}
 
 publish() { \
-	delete # Cleanup if previously embedded
+	if grep -q "id='$base'" $blogfile # Check the year.html file for a previouly published title
+	then
+	delete # Cleanup all previously related published content
+	fi
+	# delete # Cleanup if previously embedded
 	mv $webdir/blog/.drafts/$basefile $webdir/blog/.published/$basefile # Move from .drafts to .published
 	htaccessentry=$(grep "$basefile" "$webdir/blog/.htaccess") # Get .htacess entry
 	realname="$(echo "$htaccessentry" | cut -d'"' -f2)" # Get title from .htaccess entry
@@ -60,7 +64,7 @@ publish() { \
 		printf "\\n<item>\\n<title>%s</title>\\n<guid>%s%s#%s</guid>\\n<pubDate>%s</pubDate>\\n<description><![CDATA[\\n%s\\n]]></description>\\n</item>\\n\\n" "$realname" "$website" "$blogfile" "$base" "$rssdate" "$(cat "$webdir/blog/.published/$base.html")" >  "$tmpdir/rss" &&
 		printf "<div class='entry'>\\n<h2 id='%s'>%s</h2>\\n<small>[<a href='#%s'>link</a>&mdash;<a href='%s'>standalone</a>]</small>\\n%s\\n<small>%s</small>\\n</div>\\n" "$base" "$realname" "$base" "blog/$base.html" "$(cat "$webdir/blog/.drafts/$base.html")" "$webdate" > "$tmpdir/html" &&
 		printf "<li>%s &ndash; <a href=\"blog/%s\">%s</a></li>\\n" "$(date '+%Y %b %d')" "$base.html" "$realname" > "$tmpdir/index"
-	sed -i "/<!-- DB -->/r $tmpdir/html" "$blogfile"
+	vim -e -c ":g/^<\!-- DB -->/r $tmpdir/html" -c wq $blogfile
 	sed -i "/<!-- DB -->/r $tmpdir/rss" "$rssfile"
 	sed -i "/<!-- DB -->/r $tmpdir/index" "$indexfile"
 	sed -i "/ \"$base.$extention\"/d" "$webdir/blog/.htaccess" # Delete .htaccess entry
@@ -81,7 +85,7 @@ listandReturn() { printf "Listing contents of %s.\\n" "$1" # $1 is a folder
 confirm() { read -erp "Really $1 \"$base\"? (y/N) " choice && echo "$choice" | grep -i "^y$" >/dev/null || exit 1 ;}
 delete() { \
 	sed -i "/<item/{:a;N;/<\\/item>/!ba};/#$base<\\/guid/d" "$webdir/$rssfile"
-	sed -i "/<div class='entry'>/{:a;N;/<\\/div>/!ba};/id='$base'/d" "$webdir/$blogfile"
+	vim -e -c ":g/id='$base'" -c ":normal kvatd" -c wq $blogfile # If 'id=$base' is not found it deletes the whole file... check if exists in pubished...
 	sed -i "/<li>.*<a href=\"blog\\/$base.html\">/d" "$webdir/$indexfile"
 	rm "$webdir/blog/$base.html" 2>/dev/null && 
 	rm "$webdir/blog/.published/$basefile" 2>/dev/null &&
